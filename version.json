@@ -1,4 +1,4 @@
 {
-  "version": "1.2.1",
-  "changelog": "- Fixed auto-updater (clean rewrite, no syntax issues)\n- Fixed update banner display\n- Removed problematic string checks from updater.py\n- Full clean rewrite of both updater and main app"
+  "version": "1.3.0",
+  "changelog": "- Added 'Launch on PC startup' option\n- Added 'Auto-start monitoring on launch' option\n- Fixed auto-updater reliability\n- Fixed update banner display\n- Clean rewrite of updater.py"
 }

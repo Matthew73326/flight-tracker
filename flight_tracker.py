@@ -73,6 +73,7 @@ DEFAULT_CONFIG = {
     "aircraft_types":             [],
     "registrations":              [],
     "notification_cooldown_sec":  300,
+    "auto_start_monitoring":      False,
 }
 
 def load_config():
@@ -215,6 +216,42 @@ def do_update_and_restart():
     except Exception as e:
         _write_log("Update launch failed: " + str(e))
         return False, str(e)
+
+# Startup with Windows
+STARTUP_REG_KEY  = "FlightTracker"
+STARTUP_REG_PATH = "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+
+def is_startup_enabled():
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REG_PATH, 0, winreg.KEY_READ)
+        winreg.QueryValueEx(key, STARTUP_REG_KEY)
+        winreg.CloseKey(key)
+        return True
+    except Exception:
+        return False
+
+def set_startup_enabled(enabled):
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_REG_PATH, 0, winreg.KEY_SET_VALUE)
+        if enabled:
+            app_dir  = os.path.dirname(os.path.abspath(__file__))
+            vbs      = os.path.join(app_dir, "Launch_FlightTracker.vbs")
+            cmd      = 'wscript.exe "' + vbs + '"'
+            winreg.SetValueEx(key, STARTUP_REG_KEY, 0, winreg.REG_SZ, cmd)
+            _write_log("Startup enabled: " + cmd)
+        else:
+            try:
+                winreg.DeleteValue(key, STARTUP_REG_KEY)
+                _write_log("Startup disabled.")
+            except FileNotFoundError:
+                pass
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        _write_log("Startup registry error: " + str(e))
+        return False
 
 # Monitor thread
 class FlightMonitor:
@@ -467,6 +504,23 @@ class App(tk.Tk):
         self.e_poll     = self._entry(row2, "Poll every (sec)",         str(self.cfg["poll_interval_sec"]),         col=0, width=8)
         self.e_cooldown = self._entry(row2, "Re-notify cooldown (sec)", str(self.cfg["notification_cooldown_sec"]), col=2, width=8)
 
+        # Startup options
+        self._section(body, "Startup")
+        startup_row = tk.Frame(body, bg=BG)
+        startup_row.pack(fill="x", pady=(2, 10))
+
+        self.startup_var = tk.BooleanVar(value=is_startup_enabled())
+        tk.Checkbutton(startup_row, text="Launch Flight Tracker when PC starts",
+                       variable=self.startup_var, command=self._on_startup_toggle,
+                       bg=BG, fg=TEXT, selectcolor=PANEL, activebackground=BG,
+                       font=FONT_LABEL).pack(side="left")
+
+        self.automonitor_var = tk.BooleanVar(value=self.cfg.get("auto_start_monitoring", False))
+        tk.Checkbutton(startup_row, text="Start monitoring automatically on launch",
+                       variable=self.automonitor_var, command=self._on_automonitor_toggle,
+                       bg=BG, fg=TEXT, selectcolor=PANEL, activebackground=BG,
+                       font=FONT_LABEL).pack(side="left", padx=(20, 0))
+
         btn_row = tk.Frame(body, bg=BG)
         btn_row.pack(pady=4)
 
@@ -501,6 +555,8 @@ class App(tk.Tk):
         self.log_box.pack(fill="both", expand=True)
 
         self._log("Flight Tracker v" + VERSION + " ready. Press Start Monitoring.")
+        if self.cfg.get("auto_start_monitoring", False):
+            self.after(1500, self._auto_start)
         if TOAST_OK:
             self._log("OK: Toast notifications active. Click to open aircraft on map.")
         elif WINOTIFY:
@@ -555,6 +611,20 @@ class App(tk.Tk):
             messagebox.showerror("Invalid input", str(e))
             return False
 
+    def _on_startup_toggle(self):
+        enabled = self.startup_var.get()
+        ok = set_startup_enabled(enabled)
+        if ok:
+            self._log("PC startup: " + ("enabled" if enabled else "disabled"))
+        else:
+            self._log("WARNING: Could not update startup setting.")
+            self.startup_var.set(not enabled)
+
+    def _on_automonitor_toggle(self):
+        self.cfg["auto_start_monitoring"] = self.automonitor_var.get()
+        save_config(self.cfg)
+        self._log("Auto-start monitoring: " + ("enabled" if self.automonitor_var.get() else "disabled"))
+
     def _save_cfg(self):
         if self._read_ui():
             save_config(self.cfg)
@@ -567,6 +637,10 @@ class App(tk.Tk):
     def _manual_update_check(self):
         self._log("Checking for updates...")
         threading.Thread(target=self._run_update_check, daemon=True).start()
+
+    def _auto_start(self):
+        self._log("Auto-starting monitoring...")
+        self._start()
 
     def _start(self):
         if not self._read_ui():
