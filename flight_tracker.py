@@ -9,7 +9,7 @@ import json, os, math, time, threading, queue, webbrowser, sys, shutil, tempfile
 from datetime import datetime
 
 # Version
-VERSION      = "1.2.1"
+VERSION      = "1.4.0"
 GITHUB_USER  = "Matthew73326"
 GITHUB_REPO  = "flight-tracker"
 VERSION_URL  = "https://raw.githubusercontent.com/Matthew73326/flight-tracker/main/version.json"
