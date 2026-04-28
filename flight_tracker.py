@@ -198,18 +198,19 @@ def check_for_updates(silent=False):
 def do_update_and_restart():
     """Launches the updater script then closes the app."""
     try:
-        current     = os.path.abspath(__file__)
-        app_dir     = os.path.dirname(current)
-        updater     = os.path.join(app_dir, "updater.py")
+        current      = os.path.abspath(__file__)
+        app_dir      = os.path.dirname(current)
+        updater      = os.path.join(app_dir, "updater.py")
         download_url = f"{RAW_BASE}/flight_tracker.py"
 
         if not os.path.exists(updater):
-            return False, "updater.py not found in app folder"
+            return False, "updater.py not found in app folder. Please re-download from GitHub."
 
         import subprocess
+        # CREATE_NEW_CONSOLE shows a window so you can see update progress
         subprocess.Popen(
             [sys.executable, updater, current, download_url],
-            creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+            creationflags=subprocess.CREATE_NEW_CONSOLE
         )
         return True, None
     except Exception as e:
