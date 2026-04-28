@@ -9,7 +9,7 @@ import json, os, math, time, threading, queue, webbrowser, sys, shutil, tempfile
 from datetime import datetime
 
 # ── Version ───────────────────────────────────────────────────────────────────
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 GITHUB_USER = "Matthew73326"
 GITHUB_REPO = "flight-tracker"
 VERSION_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/version.json"
@@ -195,32 +195,26 @@ def check_for_updates(silent=False):
         _write_log(f"Update check failed: {e}")
         return None, None
 
-def download_update():
-    """Downloads the latest flight_tracker.py and replaces the current one."""
+def do_update_and_restart():
+    """Launches the updater script then closes the app."""
     try:
-        url = f"{RAW_BASE}/flight_tracker.py"
-        r = requests.get(url, timeout=30)
-        r.raise_for_status()
-        new_code = r.text
+        current     = os.path.abspath(__file__)
+        app_dir     = os.path.dirname(current)
+        updater     = os.path.join(app_dir, "updater.py")
+        download_url = f"{RAW_BASE}/flight_tracker.py"
 
-        # Write to a temp file first, then replace
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".py", mode="w", encoding="utf-8")
-        tmp.write(new_code)
-        tmp.close()
+        if not os.path.exists(updater):
+            return False, "updater.py not found in app folder"
 
-        current = os.path.abspath(__file__)
-        backup  = current + ".bak"
-        shutil.copy2(current, backup)       # keep a backup
-        shutil.move(tmp.name, current)
+        import subprocess
+        subprocess.Popen(
+            [sys.executable, updater, current, download_url],
+            creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+        )
         return True, None
     except Exception as e:
-        _write_log(f"Update download failed: {e}")
+        _write_log(f"Update launch failed: {e}")
         return False, str(e)
-
-def restart_app():
-    """Restart the application."""
-    python = sys.executable
-    os.execl(python, python, *sys.argv)
 
 # ── Monitor thread ────────────────────────────────────────────────────────────
 class FlightMonitor:
@@ -365,30 +359,16 @@ class UpdateDialog(tk.Toplevel):
 
     def _do_update(self):
         self.destroy()
-        # Show progress
-        prog = tk.Toplevel(self.parent)
-        prog.title("Updating...")
-        prog.configure(bg=BG)
-        prog.geometry("340x120")
-        prog.resizable(False, False)
-        tk.Label(prog, text="Downloading update...", font=FONT_HEAD,
-                 bg=BG, fg=TEXT).pack(pady=20)
-        tk.Label(prog, text="The app will restart automatically.",
-                 font=FONT_LABEL, bg=BG, fg=MUTED).pack()
-        prog.update()
-
-        def _run():
-            ok, err = download_update()
-            prog.destroy()
-            if ok:
-                messagebox.showinfo("Updated!",
-                    f"Successfully updated to the latest version.\nThe app will now restart.")
-                restart_app()
-            else:
-                messagebox.showerror("Update Failed",
-                    f"Could not download update:\n{err}\n\nYou can update manually from GitHub.")
-
-        threading.Thread(target=_run, daemon=True).start()
+        ok, err = do_update_and_restart()
+        if ok:
+            messagebox.showinfo("Updating!",
+                "The updater is downloading the latest version.\n\nThe app will restart automatically when done.")
+            # Close the main app so updater can replace the file
+            self.parent.monitor.stop()
+            self.parent.destroy()
+        else:
+            messagebox.showerror("Update Failed",
+                f"Could not start updater:\n{err}\n\nPlease update manually from GitHub.")
 
 
 # ── Main GUI ──────────────────────────────────────────────────────────────────
