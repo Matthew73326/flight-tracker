@@ -1,4 +1,4 @@
 {
-  "version": "1.2.0",
-  "changelog": "- Fixed auto-updater (now works reliably on Windows)\n- Updater runs as separate process so file can be replaced cleanly\n- App restarts automatically after update"
+  "version": "1.2.1",
+  "changelog": "- Fixed auto-updater (clean rewrite, no syntax issues)\n- Fixed update banner display\n- Removed problematic string checks from updater.py\n- Full clean rewrite of both updater and main app"
 }
