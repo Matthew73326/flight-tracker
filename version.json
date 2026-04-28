@@ -1,4 +1,4 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.0 Test version",
   "changelog": "- Fixed auto-updater (now works reliably on Windows)\n- Updater runs as separate process so file can be replaced cleanly\n- App restarts automatically after update"
 }
