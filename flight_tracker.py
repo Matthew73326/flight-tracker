@@ -1,13 +1,21 @@
 """
-Flight Tracker v6 - Robust startup, clickable notifications
+Flight Tracker - ADS-B Exchange military aircraft notifier
+GitHub: https://github.com/Matthew73326/flight-tracker
 """
 
 import tkinter as tk
 from tkinter import scrolledtext, messagebox
-import json, os, math, time, threading, queue, webbrowser, sys
+import json, os, math, time, threading, queue, webbrowser, sys, shutil, tempfile
 from datetime import datetime
 
-# ── Log startup errors to file so we can diagnose crashes ────────────────────
+# ── Version ───────────────────────────────────────────────────────────────────
+VERSION = "1.1.0"
+GITHUB_USER = "Matthew73326"
+GITHUB_REPO = "flight-tracker"
+VERSION_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/version.json"
+RAW_BASE    = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main"
+
+# ── Startup log ───────────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE    = os.path.join(BASE_DIR, "startup_log.txt")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
@@ -19,7 +27,7 @@ def _write_log(msg):
     except Exception:
         pass
 
-_write_log("=== Flight Tracker starting ===")
+_write_log(f"=== Flight Tracker v{VERSION} starting ===")
 
 # ── requests ──────────────────────────────────────────────────────────────────
 try:
@@ -29,8 +37,8 @@ except ImportError:
     requests = None
     _write_log("requests: MISSING")
 
-# ── Notification backend: try each, log result ────────────────────────────────
-TOAST_OK  = False
+# ── Notification backends ─────────────────────────────────────────────────────
+TOAST_OK = False
 WINOTIFY  = False
 toaster   = None
 
@@ -53,9 +61,6 @@ if not TOAST_OK:
         _write_log("winotify: OK")
     except Exception as e:
         _write_log(f"winotify: FAILED ({e})")
-
-if not TOAST_OK and not WINOTIFY:
-    _write_log("No toast library available - will use popup fallback")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 DEFAULT_CONFIG = {
@@ -138,7 +143,6 @@ def aircraft_matches(ac, cfg):
 _notif_q = queue.Queue()
 
 def send_notification(title, body, url=None):
-    # 1. windows-toasts
     if TOAST_OK:
         try:
             toast = Toast()
@@ -150,14 +154,11 @@ def send_notification(title, body, url=None):
                         webbrowser.open(url)
                     toast.on_activated = on_activated
                 else:
-                    # older windows_toasts API
                     toast.launch_action = url
             toaster.show_toast(toast)
             return
         except Exception as e:
             _write_log(f"windows_toasts send error: {e}")
-
-    # 2. winotify
     if WINOTIFY:
         try:
             n = Notification(app_id="Flight Tracker", title=title, msg=body, duration="short")
@@ -168,9 +169,58 @@ def send_notification(title, body, url=None):
             return
         except Exception as e:
             _write_log(f"winotify send error: {e}")
-
-    # 3. Queue for main-thread popup
     _notif_q.put((title, body, url))
+
+# ── Auto updater ──────────────────────────────────────────────────────────────
+def parse_version(v):
+    try:
+        return tuple(int(x) for x in v.strip().split("."))
+    except Exception:
+        return (0, 0, 0)
+
+def check_for_updates(silent=False):
+    """Returns (latest_version, changelog) or (None, None) if up to date / error."""
+    if requests is None:
+        return None, None
+    try:
+        r = requests.get(VERSION_URL, timeout=8)
+        r.raise_for_status()
+        data = r.json()
+        latest  = data.get("version", VERSION)
+        changelog = data.get("changelog", "No changelog provided.")
+        if parse_version(latest) > parse_version(VERSION):
+            return latest, changelog
+        return None, None
+    except Exception as e:
+        _write_log(f"Update check failed: {e}")
+        return None, None
+
+def download_update():
+    """Downloads the latest flight_tracker.py and replaces the current one."""
+    try:
+        url = f"{RAW_BASE}/flight_tracker.py"
+        r = requests.get(url, timeout=30)
+        r.raise_for_status()
+        new_code = r.text
+
+        # Write to a temp file first, then replace
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".py", mode="w", encoding="utf-8")
+        tmp.write(new_code)
+        tmp.close()
+
+        current = os.path.abspath(__file__)
+        backup  = current + ".bak"
+        shutil.copy2(current, backup)       # keep a backup
+        shutil.move(tmp.name, current)
+        return True, None
+    except Exception as e:
+        _write_log(f"Update download failed: {e}")
+        return False, str(e)
+
+def restart_app():
+    """Restart the application."""
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
 
 # ── Monitor thread ────────────────────────────────────────────────────────────
 class FlightMonitor:
@@ -194,8 +244,8 @@ class FlightMonitor:
         self.running = False
 
     def _loop(self):
-        cfg     = self.cfg
-        mode    = cfg.get("monitor_mode", "military")
+        cfg      = self.cfg
+        mode     = cfg.get("monitor_mode", "military")
         mil_only = (mode == "military")
         self.log(f"Started | {cfg['location_name']} ({cfg['latitude']}, {cfg['longitude']}) | "
                  f"Radius: {cfg['radius_km']} km | Mode: {mode}")
@@ -254,6 +304,7 @@ class FlightMonitor:
 
         self.log("Monitoring stopped.")
 
+
 # ── Colours / fonts ───────────────────────────────────────────────────────────
 BG     = "#0d1117"
 PANEL  = "#161b22"
@@ -261,6 +312,7 @@ BORDER = "#30363d"
 ACCENT = "#58a6ff"
 GREEN  = "#3fb950"
 RED    = "#f85149"
+YELLOW = "#d29922"
 TEXT   = "#e6edf3"
 MUTED  = "#8b949e"
 
@@ -269,7 +321,77 @@ FONT_LABEL = ("Segoe UI", 10)
 FONT_HEAD  = ("Segoe UI Semibold", 11)
 FONT_BIG   = ("Segoe UI Semibold", 14)
 
-# ── GUI ───────────────────────────────────────────────────────────────────────
+
+# ── Update dialog ─────────────────────────────────────────────────────────────
+class UpdateDialog(tk.Toplevel):
+    def __init__(self, parent, latest_version, changelog):
+        super().__init__(parent)
+        self.parent  = parent
+        self.title("Update Available")
+        self.configure(bg=BG)
+        self.resizable(False, False)
+        self.geometry("460x320")
+        self.grab_set()  # modal
+
+        tk.Label(self, text="Update Available!", font=FONT_BIG,
+                 bg=BG, fg=YELLOW).pack(pady=(20, 4))
+        tk.Label(self, text=f"Version {latest_version} is available  (you have {VERSION})",
+                 font=FONT_LABEL, bg=BG, fg=MUTED).pack()
+
+        tk.Label(self, text="What's new:", font=("Segoe UI Semibold", 10),
+                 bg=BG, fg=TEXT).pack(anchor="w", padx=20, pady=(16, 4))
+
+        txt = tk.Text(self, bg=PANEL, fg=TEXT, font=FONT_BODY,
+                      relief="flat", height=6, wrap="word")
+        txt.insert("1.0", changelog)
+        txt.config(state="disabled")
+        txt.pack(fill="x", padx=20)
+
+        btn_row = tk.Frame(self, bg=BG)
+        btn_row.pack(pady=16)
+
+        tk.Button(btn_row, text="Update Now", command=self._do_update,
+                  font=FONT_HEAD, bg=GREEN, fg="#000", activebackground="#2ea043",
+                  relief="flat", padx=16, pady=8, cursor="hand2").pack(side="left", padx=8)
+
+        tk.Button(btn_row, text="Not Now", command=self.destroy,
+                  font=FONT_HEAD, bg=BORDER, fg=MUTED, activebackground=BORDER,
+                  relief="flat", padx=16, pady=8, cursor="hand2").pack(side="left", padx=8)
+
+        tk.Button(btn_row, text="View on GitHub",
+                  command=lambda: webbrowser.open(f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}"),
+                  font=FONT_HEAD, bg=PANEL, fg=TEXT, activebackground=BORDER,
+                  relief="flat", padx=16, pady=8, cursor="hand2").pack(side="left", padx=8)
+
+    def _do_update(self):
+        self.destroy()
+        # Show progress
+        prog = tk.Toplevel(self.parent)
+        prog.title("Updating...")
+        prog.configure(bg=BG)
+        prog.geometry("340x120")
+        prog.resizable(False, False)
+        tk.Label(prog, text="Downloading update...", font=FONT_HEAD,
+                 bg=BG, fg=TEXT).pack(pady=20)
+        tk.Label(prog, text="The app will restart automatically.",
+                 font=FONT_LABEL, bg=BG, fg=MUTED).pack()
+        prog.update()
+
+        def _run():
+            ok, err = download_update()
+            prog.destroy()
+            if ok:
+                messagebox.showinfo("Updated!",
+                    f"Successfully updated to the latest version.\nThe app will now restart.")
+                restart_app()
+            else:
+                messagebox.showerror("Update Failed",
+                    f"Could not download update:\n{err}\n\nYou can update manually from GitHub.")
+
+        threading.Thread(target=_run, daemon=True).start()
+
+
+# ── Main GUI ──────────────────────────────────────────────────────────────────
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -277,19 +399,35 @@ class App(tk.Tk):
         self.title("Flight Tracker")
         self.configure(bg=BG)
         self.resizable(True, True)
-        self.geometry("720x700")
+        self.geometry("720x720")
         self.cfg     = load_config()
         self.monitor = FlightMonitor(log_cb=self._log)
         self._build_ui()
         self._poll_notif_queue()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         _write_log("GUI init complete")
+        # Check for updates in background after 2 seconds
+        self.after(2000, self._check_updates_bg)
+
+    def _check_updates_bg(self):
+        def _run():
+            latest, changelog = check_for_updates()
+            if latest:
+                self.after(0, lambda: self._show_update_dialog(latest, changelog))
+            else:
+                self._log(f"v{VERSION} - App is up to date.")
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _show_update_dialog(self, latest, changelog):
+        self._log(f"Update available: v{latest}")
+        UpdateDialog(self, latest, changelog)
 
     def _build_ui(self):
+        # Header with version
         hdr = tk.Frame(self, bg=PANEL, pady=12)
         hdr.pack(fill="x")
         tk.Label(hdr, text="FLIGHT TRACKER", font=FONT_BIG, bg=PANEL, fg=ACCENT).pack()
-        tk.Label(hdr, text="Live ADS-B  -  Windows Notifications",
+        tk.Label(hdr, text=f"Live ADS-B  -  Windows Notifications  -  v{VERSION}",
                  font=("Segoe UI", 9), bg=PANEL, fg=MUTED).pack()
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
@@ -368,6 +506,12 @@ class App(tk.Tk):
             relief="flat", padx=18, pady=8, cursor="hand2"
         ).pack(side="left", padx=6)
 
+        tk.Button(
+            btn_row, text="Check for Updates", command=self._manual_update_check,
+            font=FONT_HEAD, bg=PANEL, fg=TEXT, activebackground=BORDER,
+            relief="flat", padx=18, pady=8, cursor="hand2"
+        ).pack(side="left", padx=6)
+
         self.status_var = tk.StringVar(value="Idle")
         tk.Label(body, textvariable=self.status_var,
                  bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(4, 0))
@@ -379,18 +523,15 @@ class App(tk.Tk):
             relief="flat", height=12, state="disabled", insertbackground=TEXT)
         self.log_box.pack(fill="both", expand=True)
 
-        # Startup messages
-        self._log("Flight Tracker ready. Press Start Monitoring.")
+        self._log(f"Flight Tracker v{VERSION} ready. Press Start Monitoring.")
         if TOAST_OK:
             self._log("OK: Toast notifications ready. Click notification to open aircraft on map.")
         elif WINOTIFY:
             self._log("OK: winotify notifications ready.")
         else:
-            self._log("WARNING: No toast library - using popup fallback.")
-            self._log("Run setup_install.bat to fix this.")
+            self._log("WARNING: No toast library - run setup_install.bat.")
         if requests is None:
             self._log("WARNING: 'requests' not installed - run setup_install.bat first.")
-        self._log(f"Startup log: {LOG_FILE}")
 
     def _section(self, parent, title):
         f = tk.Frame(parent, bg=BG)
@@ -451,6 +592,16 @@ class App(tk.Tk):
         )
         self._log("Test notification sent.")
 
+    def _manual_update_check(self):
+        self._log("Checking for updates...")
+        def _run():
+            latest, changelog = check_for_updates()
+            if latest:
+                self.after(0, lambda: self._show_update_dialog(latest, changelog))
+            else:
+                self.after(0, lambda: self._log("Already on the latest version."))
+        threading.Thread(target=_run, daemon=True).start()
+
     def _start(self):
         if not self._read_ui():
             return
@@ -501,16 +652,17 @@ if __name__ == "__main__":
         _write_log(f"FATAL ERROR: {e}")
         import traceback
         _write_log(traceback.format_exc())
-        # Show error in a simple window so it doesn't just vanish
         try:
             root = tk.Tk()
             root.title("Flight Tracker - Error")
             root.geometry("600x300")
-            tk.Label(root, text="Flight Tracker failed to start:", fg="red", font=("Segoe UI", 11)).pack(pady=10)
+            tk.Label(root, text="Flight Tracker failed to start:", fg="red",
+                     font=("Segoe UI", 11)).pack(pady=10)
             txt = tk.Text(root, wrap="word", height=10)
             txt.insert("1.0", traceback.format_exc())
             txt.pack(fill="both", expand=True, padx=10)
-            tk.Label(root, text=f"Full log saved to: {LOG_FILE}", font=("Segoe UI", 9)).pack(pady=5)
+            tk.Label(root, text=f"Full log: {LOG_FILE}",
+                     font=("Segoe UI", 9)).pack(pady=5)
             root.mainloop()
         except Exception:
             pass
