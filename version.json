@@ -1,4 +1,4 @@
 {
-  "version": "1.4.0",
-  "changelog": "- Added 'Launch on PC startup' option\n- Added 'Auto-start monitoring on launch' option\n- Fixed auto-updater reliability\n- Fixed update banner display\n- Clean rewrite of updater.py"
+  "version": "1.5.1",
+  "changelog": "- Scrollable UI - scroll up and down through all settings\n- Mousewheel support"
 }

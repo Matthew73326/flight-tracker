@@ -9,7 +9,7 @@ import json, os, math, time, threading, queue, webbrowser, sys, shutil, tempfile
 from datetime import datetime
 
 # Version
-VERSION      = "1.4.0"
+VERSION      = "1.5.1"
 GITHUB_USER  = "Matthew73326"
 GITHUB_REPO  = "flight-tracker"
 VERSION_URL  = "https://raw.githubusercontent.com/Matthew73326/flight-tracker/main/version.json"
@@ -74,6 +74,7 @@ DEFAULT_CONFIG = {
     "registrations":              [],
     "notification_cooldown_sec":  300,
     "auto_start_monitoring":      False,
+    "discord_webhook_url":         "",
 }
 
 def load_config():
@@ -171,6 +172,34 @@ def send_notification(title, body, url=None):
         except Exception as e:
             _write_log("winotify send error: " + str(e))
     _notif_q.put((title, body, url))
+
+# Discord webhook
+def send_discord_notification(title, body, url=None):
+    webhook_url = ""
+    try:
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        webhook_url = cfg.get("discord_webhook_url", "")
+    except Exception:
+        pass
+
+    if not webhook_url:
+        return
+
+    try:
+        embed = {
+            "title": title,
+            "description": body,
+            "color": 3447003,
+            "footer": {"text": "Flight Tracker"}
+        }
+        if url:
+            embed["url"] = url
+        payload = {"embeds": [embed]}
+        requests.post(webhook_url, json=payload, timeout=8)
+    except Exception as e:
+        _write_log("Discord webhook error: " + str(e))
 
 # Auto updater
 def parse_version(v):
@@ -287,6 +316,8 @@ class FlightMonitor:
                 else:
                     aircraft = fetch_aircraft(cfg["latitude"], cfg["longitude"], cfg["radius_km"], military_only=mil_only)
                     self.log("Polled (" + mode + ") - " + str(len(aircraft)) + " aircraft in range")
+                    if hasattr(self, "_app_ref"):
+                        self._app_ref._set_connection_status(True, datetime.now().strftime("%H:%M:%S"))
                     now      = time.time()
                     cooldown = cfg.get("notification_cooldown_sec", 300)
 
@@ -318,10 +349,13 @@ class FlightMonitor:
 
                         self.log("  NOTIFY -> " + title + " | " + body)
                         send_notification(title, body, url=map_url)
+                        send_discord_notification(title, body, url=map_url)
 
             except Exception as e:
                 self.log("Error: " + str(e))
                 _write_log("Monitor error: " + str(e))
+                if hasattr(self, "_app_ref"):
+                    self._app_ref._set_connection_status(False)
 
             for _ in range(cfg.get("poll_interval_sec", 60)):
                 if not self.running:
@@ -462,8 +496,41 @@ class App(tk.Tk):
                  font=("Segoe UI", 9), bg=PANEL, fg=MUTED).pack()
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
-        body = tk.Frame(self, bg=BG)
-        body.pack(fill="both", expand=True, padx=20, pady=14)
+        # Connection status bar
+        self._status_bar = tk.Frame(self, bg=PANEL, pady=4)
+        self._status_bar.pack(fill="x")
+        self._conn_dot = tk.Label(self._status_bar, text="●", bg=PANEL, fg=MUTED, font=("Segoe UI", 10))
+        self._conn_dot.pack(side="left", padx=(12, 4))
+        self._conn_label = tk.Label(self._status_bar, text="Not connected", bg=PANEL, fg=MUTED, font=("Segoe UI", 9))
+        self._conn_label.pack(side="left")
+        self._last_poll_label = tk.Label(self._status_bar, text="", bg=PANEL, fg=MUTED, font=("Segoe UI", 9))
+        self._last_poll_label.pack(side="right", padx=12)
+
+        # Scrollable body
+        canvas = tk.Canvas(self, bg=BG, highlightthickness=0)
+        scrollbar = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        body = tk.Frame(canvas, bg=BG)
+        self._body_window = canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def _on_frame_configure(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        body.bind("<Configure>", _on_frame_configure)
+
+        def _on_canvas_configure(e):
+            canvas.itemconfig(self._body_window, width=e.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        body_pad = tk.Frame(body, bg=BG)
+        body_pad.pack(fill="both", expand=True, padx=20, pady=14)
+        body = body_pad
 
         self._section(body, "Location")
         row1 = tk.Frame(body, bg=BG)
@@ -520,6 +587,19 @@ class App(tk.Tk):
                        variable=self.automonitor_var, command=self._on_automonitor_toggle,
                        bg=BG, fg=TEXT, selectcolor=PANEL, activebackground=BG,
                        font=FONT_LABEL).pack(side="left", padx=(20, 0))
+
+        # Discord webhook
+        self._section(body, "Discord Webhook")
+        discord_row = tk.Frame(body, bg=BG)
+        discord_row.pack(fill="x", pady=(2, 10))
+        tk.Label(discord_row, text="Webhook URL:", bg=BG, fg=MUTED, font=FONT_LABEL).pack(side="left")
+        self.e_discord = tk.Entry(discord_row, bg=PANEL, fg=TEXT, insertbackground=TEXT,
+                                  font=FONT_BODY, relief="flat", bd=6)
+        self.e_discord.insert(0, self.cfg.get("discord_webhook_url", ""))
+        self.e_discord.pack(side="left", fill="x", expand=True, padx=(10, 0))
+        tk.Button(discord_row, text="Test", command=self._test_discord,
+                  font=FONT_LABEL, bg=PANEL, fg=TEXT, relief="flat",
+                  padx=8, pady=4, cursor="hand2").pack(side="left", padx=(6, 0))
 
         btn_row = tk.Frame(body, bg=BG)
         btn_row.pack(pady=4)
@@ -606,6 +686,7 @@ class App(tk.Tk):
             self.cfg["monitor_mode"]              = self.mode_var.get()
             self.cfg["aircraft_types"]            = [x.strip().upper() for x in self.e_types.get().split(",") if x.strip()]
             self.cfg["registrations"]             = [x.strip().upper() for x in self.e_regs.get().split(",") if x.strip()]
+            self.cfg["discord_webhook_url"]        = self.e_discord.get().strip()
             return True
         except ValueError as e:
             messagebox.showerror("Invalid input", str(e))
@@ -638,6 +719,27 @@ class App(tk.Tk):
         self._log("Checking for updates...")
         threading.Thread(target=self._run_update_check, daemon=True).start()
 
+    def _test_discord(self):
+        self.cfg["discord_webhook_url"] = self.e_discord.get().strip()
+        if not self.cfg["discord_webhook_url"]:
+            messagebox.showwarning("No webhook", "Please enter a Discord webhook URL first.")
+            return
+        save_config(self.cfg)
+        send_discord_notification("Flight Tracker Test", "Discord notifications are working!", url="https://globe.adsbexchange.com")
+        self._log("Discord test message sent.")
+
+    def _set_connection_status(self, ok, last_poll=None):
+        def _do():
+            if ok:
+                self._conn_dot.config(fg=GREEN)
+                self._conn_label.config(text="Connected to ADS-B feed", fg=GREEN)
+            else:
+                self._conn_dot.config(fg=RED)
+                self._conn_label.config(text="ADS-B feed unreachable", fg=RED)
+            if last_poll:
+                self._last_poll_label.config(text="Last poll: " + last_poll)
+        self.after(0, _do)
+
     def _auto_start(self):
         self._log("Auto-starting monitoring...")
         self._start()
@@ -646,6 +748,7 @@ class App(tk.Tk):
         if not self._read_ui():
             return
         save_config(self.cfg)
+        self.monitor._app_ref = self
         self.monitor.start(self.cfg)
         self.btn_start.config(state="disabled")
         self.btn_stop.config(state="normal", bg=RED, fg="#fff", activebackground="#c93728")

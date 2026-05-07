@@ -1,0 +1,13 @@
+{
+  "location_name": "London",
+  "latitude": 51.5074,
+  "longitude": -0.1278,
+  "radius_km": 100.0,
+  "poll_interval_sec": 10,
+  "monitor_mode": "all",
+  "aircraft_types": [],
+  "registrations": [],
+  "notification_cooldown_sec": 300,
+  "auto_start_monitoring": false,
+  "discord_webhook_url": "https://discordapp.com/api/webhooks/1501980582530515015/8-g1jSfolmGwaf_AugIMBixfHtjVN55rm3L9FEkBIW_r-LAuXfHFLTOW0aZAIcc-IBtm"
+}

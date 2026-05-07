@@ -1,0 +1,18 @@
+[2026-05-07 17:14:10.525422] === Flight Tracker v1.5.1 starting ===
+[2026-05-07 17:14:10.701601] requests: OK
+[2026-05-07 17:14:10.798030] windows_toasts: OK
+[2026-05-07 17:14:10.798638] Launching App()
+[2026-05-07 17:14:10.891635] GUI init started
+[2026-05-07 17:14:10.916420] GUI init complete
+[2026-05-07 17:14:11.927053] Checking for updates at: https://raw.githubusercontent.com/Matthew73326/flight-tracker/main/version.json
+[2026-05-07 17:14:12.275998] Raw response: {
+  "version": "1.4.0",
+  "changelog": "- Added 'Launch on PC startup' option\n- Added 'Auto-start monitoring on launch' option\n- Fixed auto-updater reliability\n- Fixed update banner display\n- Clea
+[2026-05-07 17:14:12.276737] Latest: 1.4.0  Current: 1.5.1
+[2026-05-07 17:14:12.276987] Already up to date.
+[2026-05-07 17:14:42.390246] Startup disabled.
+[2026-05-07 17:14:42.625186] Startup enabled: wscript.exe "C:\Users\matth\Downloads\flight_tracker_v1.5.1\flight_tracker8\Launch_FlightTracker.vbs"
+[2026-05-07 17:15:15.606018] Monitor error: HTTPSConnectionPool(host='api.adsb.lol', port=443): Max retries exceeded with url: /v2/mil (Caused by ConnectTimeoutError(<HTTPSConnection(host='api.adsb.lol', port=443) at 0x24ff101ead0>, 'Connection to api.adsb.lol timed out. (connect timeout=20)'))
+[2026-05-07 17:15:30.259092] Monitor error: HTTPSConnectionPool(host='api.adsb.lol', port=443): Read timed out. (read timeout=20)
+[2026-05-07 17:16:12.487871] Monitor error: HTTPSConnectionPool(host='api.adsb.lol', port=443): Read timed out. (read timeout=20)
+[2026-05-07 17:16:22.570238] App exited normally
